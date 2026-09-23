@@ -158,3 +158,47 @@ def test_extract_with_raw_text(client, test_api_key):
 
     client.app.dependency_overrides.pop(get_pipeline, None)
     client.app.dependency_overrides.pop(get_s3_service, None)
+
+
+def test_overlapping_extraction_is_rejected_and_health_stays_available(client, test_settings, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from unittest.mock import patch
+
+    from app.auth.middleware import require_api_key
+    from app.utils.exceptions import FileValidationError
+
+    test_settings.EXTRACTION_LOCK_PATH = str(tmp_path / "extraction.lock")
+    started, finish = Event(), Event()
+    pipeline = MagicMock()
+    s3 = MagicMock()
+    s3.check_connectivity.return_value = True
+
+    def process(*args, **kwargs):
+        started.set()
+        assert finish.wait(10), "Test did not release extraction"
+        raise FileValidationError("Invalid test PDF")
+
+    pipeline.process_resume.side_effect = process
+    client.app.dependency_overrides[require_api_key] = lambda: None
+    client.app.dependency_overrides[get_pipeline] = lambda: pipeline
+    client.app.dependency_overrides[get_s3_service] = lambda: s3
+
+    def request():
+        return client.post("/api/v1/extract", files={"file": ("test.pdf", b"pdf")})
+
+    with patch("app.dependencies.get_settings", return_value=test_settings):
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            active = pool.submit(request)
+            try:
+                assert started.wait(5)
+                busy = request()
+                assert busy.status_code == 503
+                assert busy.headers["Retry-After"] == "30"
+                assert pipeline.process_resume.call_count == 1
+                assert client.get("/api/v1/health").status_code == 200
+            finally:
+                finish.set()
+            assert active.result(timeout=5).status_code == 415
+        assert request().status_code == 415
+        assert pipeline.process_resume.call_count == 2

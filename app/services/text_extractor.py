@@ -17,7 +17,10 @@ def extract_text_from_pdf(file_content: bytes) -> str:
     with pdfplumber.open(io.BytesIO(file_content)) as pdf:
         logger.info("PDF extraction started", extra={"page_count": len(pdf.pages)})
         for i, page in enumerate(pdf.pages):
-            page_text = page.extract_text() or ""
+            try:
+                page_text = page.extract_text() or ""
+            finally:
+                page.close()
             text_parts.append(page_text)
             if page_text:
                 logger.debug(

@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
     MAX_UPLOAD_SIZE_MB: int = 25
+    # All workers must share this file; production uses the app_data volume.
+    EXTRACTION_LOCK_PATH: str = "/tmp/resume-normalizer-extraction.lock"
 
     # OpenAI
     OPENAI_API_KEY: SecretStr

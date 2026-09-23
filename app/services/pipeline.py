@@ -118,17 +118,21 @@ class Pipeline:
     @staticmethod
     def _pdf_to_images(file_content: bytes) -> list[bytes]:
         """Convert PDF pages to PNG byte arrays for vision processing."""
-        from io import BytesIO
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
 
         from pdf2image import convert_from_bytes
 
-        pil_images = convert_from_bytes(file_content)
-        png_pages: list[bytes] = []
-        for img in pil_images:
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            png_pages.append(buf.getvalue())
-        return png_pages
+        with TemporaryDirectory(prefix="resume-pages-") as output_dir:
+            paths = convert_from_bytes(
+                file_content,
+                fmt="png",
+                output_folder=output_dir,
+                paths_only=True,
+                size=2000,
+                thread_count=1,
+            )
+            return [Path(path).read_bytes() for path in paths]
 
     def _validate_text(self, raw_text: str, filename: str) -> None:
         """Validate extracted text has enough content."""
